@@ -2,40 +2,36 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Fate of Glucose – Integrated Metabolic Pathway</title>
+<title>Fate of Glucose – Complete Exam Engine</title>
 
 <style>
 body{
-    font-family: "Segoe UI", Arial;
+    font-family:"Segoe UI",Arial;
     background:#ffffff;
     margin:40px;
 }
 
-h1{
-    text-align:center;
-    margin-bottom:40px;
-}
-
-.container{
-    display:flex;
-    justify-content:center;
-}
+h1{text-align:center;margin-bottom:25px;}
 
 .main{
-    width:700px;
+    width:850px;
+    margin:auto;
 }
 
 .step{
-    margin:18px 0;
+    margin:14px 0;
     opacity:0;
-    transition:opacity 0.4s ease;
+    transition:opacity 0.25s ease;
 }
 
 .step.show{opacity:1;}
 
-.arrow{
-    text-align:center;
-    font-size:22px;
+.arrow{text-align:center;font-size:18px;}
+
+.branch{
+    margin-left:60px;
+    border-left:3px solid #999;
+    padding-left:15px;
 }
 
 .carbon{color:#0077cc;font-weight:bold;}
@@ -43,177 +39,204 @@ h1{
 .red{color:#cc0000;}
 .purple{color:#800080;}
 
-.irrev{border-left:5px solid black;padding-left:10px;}
-.rev{border-left:5px solid #aaa;padding-left:10px;}
+.irrev{border-left:6px solid black;padding-left:10px;}
+.rev{border-left:6px solid #aaa;padding-left:10px;}
 
 .energy{
-    position:fixed;
-    right:40px;
-    top:120px;
-    border:1px solid #000;
-    padding:15px;
-    width:200px;
+position:fixed;
+right:40px;
+top:120px;
+border:1px solid #000;
+padding:15px;
+width:260px;
+background:#fafafa;
 }
 
-.option{
-    margin:6px 0;
-    font-size:14px;
+.rapid .arrow,
+.rapid .energy{
+display:none;
+}
+
+@media print{
+.energy{display:none;}
 }
 </style>
 </head>
-
 <body>
 
 <h1>Fate of Glucose – Integrated Metabolic Pathway</h1>
 
-<div class="container">
 <div class="main" id="main"></div>
-</div>
 
 <div class="energy">
-<b>Energy Tracker</b><br><br>
-ATP: <span id="atp">0</span><br>
-NADH: <span id="nadh">0</span><br>
-FADH2: <span id="fadh2">0</span><br>
-NADPH: <span id="nadph">0</span>
+<b>Live Metabolic Tracker</b><br><br>
+Carbon Pool: <span id="CARBON">6</span>C<br><br>
+ATP: <span id="ATP">0</span><br>
+NADH: <span id="NADH">0</span><br>
+FADH2: <span id="FADH2">0</span><br>
+NADPH: <span id="NADPH">0</span><br><br>
+<b>Total ATP (Aerobic):</b><br>
+<span id="TOTAL">0</span>
 </div>
 
 <script>
 
-const main = document.getElementById("main");
+const main=document.getElementById("main");
 
-let energy = {ATP:0,NADH:0,FADH2:0,NADPH:0};
-let historyStack = [];
-let currentPathway = "absorption";
-let index = 0;
+let energy={ATP:0,NADH:0,FADH2:0,NADPH:0};
+let carbon=6;
+let history=[];
+let mode="root";
+let index=0;
 
-function updateEnergy(){
-    atp.textContent = energy.ATP;
-    nadh.textContent = energy.NADH;
-    fadh2.textContent = energy.FADH2;
-    nadph.textContent = energy.NADPH;
+function scrollDown(){
+window.scrollTo({top:document.body.scrollHeight,behavior:"smooth"});
 }
 
-function addStep(html, energyChange={}, reversible=true){
+function update(){
+document.getElementById("ATP").textContent=energy.ATP;
+document.getElementById("NADH").textContent=energy.NADH;
+document.getElementById("FADH2").textContent=energy.FADH2;
+document.getElementById("NADPH").textContent=energy.NADPH;
+document.getElementById("CARBON").textContent=carbon;
 
-    let div = document.createElement("div");
-    div.className = "step " + (reversible?"rev":"irrev");
+let total = energy.ATP + energy.NADH*2.5 + energy.FADH2*1.5;
+document.getElementById("TOTAL").textContent=total.toFixed(1);
+}
 
-    div.innerHTML = html + `<div class="arrow">↓</div>`;
-    main.appendChild(div);
+function add(html,change={},rev=true,isBranch=false,carbonChange=0){
 
-    setTimeout(()=>div.classList.add("show"),50);
+let div=document.createElement("div");
+div.className="step "+(rev?"rev":"irrev");
+if(isBranch) div.classList.add("branch");
 
-    historyStack.push({div, energyChange});
+div.innerHTML=html+`<div class="arrow">↓</div>`;
+main.appendChild(div);
+setTimeout(()=>div.classList.add("show"),30);
 
-    for(let key in energyChange){
-        energy[key] += energyChange[key];
-    }
-    updateEnergy();
+history.push({div,change,carbonChange});
+
+for(let k in change) energy[k]+=change[k];
+carbon+=carbonChange;
+
+update();
+scrollDown();
 }
 
 function undo(){
-    if(historyStack.length===0) return;
-    let last = historyStack.pop();
-    main.removeChild(last.div);
-    for(let key in last.energyChange){
-        energy[key] -= last.energyChange[key];
-    }
-    updateEnergy();
+if(history.length===0)return;
+let last=history.pop();
+main.removeChild(last.div);
+for(let k in last.change) energy[k]-=last.change[k];
+carbon-=last.carbonChange;
+update();
 }
 
 function resetAll(){
-    while(historyStack.length>0){
-        undo();
-    }
-    currentPathway="absorption";
-    index=0;
+while(history.length>0) undo();
+mode="root";
+index=0;
+carbon=6;
+update();
 }
 
-const absorption = [
-"Dietary Carbohydrates",
-"Digestion: Amylase → Maltase / Sucrase / Lactase",
-"Glucose absorption via SGLT1 (Intestine)",
-"Transport via GLUT2 → Portal Circulation",
-"Liver uptake via GLUT2",
-"Peripheral uptake via GLUT4 (Insulin dependent)"
+/* ================= PATHWAYS ================= */
+
+const glycolysis=[
+{h:"<b>Glycolysis</b>"},
+{h:"<span class='carbon'>[6C]</span> Glucose → G6P <span class='red'>-1 ATP</span>",c:{ATP:-1},rev:false},
+{h:"F6P → F1,6BP <span class='red'>-1 ATP</span>",c:{ATP:-1},rev:false},
+{h:"F1,6BP → 2 × <span class='carbon'>[3C]</span>",carbonChange:-3},
+{h:"2 G3P → 1,3-BPG <span class='green'>+2 NADH</span>",c:{NADH:2}},
+{h:"1,3-BPG → 3PG <span class='green'>+2 ATP</span>",c:{ATP:2}},
+{h:"PEP → 2 Pyruvate <span class='green'>+2 ATP</span>",c:{ATP:2},rev:false}
 ];
 
-const glycolysis = [
-{html:"<span class='carbon'>[6C]</span> Glucose → G6P (Hexokinase) <span class='red'>-1 ATP</span>",energy:{ATP:-1},rev:false},
-{html:"G6P ↔ F6P (Phosphoglucose isomerase)"},
-{html:"F6P → F1,6BP (PFK-1) <span class='red'>-1 ATP</span>",energy:{ATP:-1},rev:false},
-{html:"F1,6BP ↔ DHAP + G3P (Aldolase)"},
-{html:"G3P → 1,3-BPG (G3P DH) <span class='green'>+2 NADH</span>",energy:{NADH:2}},
-{html:"1,3-BPG → 3PG (PGK) <span class='green'>+2 ATP</span>",energy:{ATP:2}},
-{html:"PEP → Pyruvate (Pyruvate kinase) <span class='green'>+2 ATP</span>",energy:{ATP:2},rev:false}
+const TCA=[
+{h:"<b>TCA Cycle (2 turns)</b>"},
+{h:"2 Acetyl-CoA entry <span class='green'>+2 NADH</span>",c:{NADH:2},rev:false},
+{h:"Isocitrate DH ×2 <span class='green'>+2 NADH</span>",c:{NADH:2},rev:false},
+{h:"α-KG DH ×2 <span class='green'>+2 NADH</span>",c:{NADH:2},rev:false},
+{h:"Succinyl-CoA synthetase ×2 <span class='green'>+2 ATP</span>",c:{ATP:2}},
+{h:"Succinate DH ×2 <span class='green'>+2 FADH2</span>",c:{FADH2:2}},
+{h:"Malate DH ×2 <span class='green'>+2 NADH</span>",c:{NADH:2}}
 ];
 
-const tca = [
-{html:"Acetyl-CoA entry (PDH) <span class='green'>+1 NADH</span>",energy:{NADH:1},rev:false},
-{html:"Citrate synthase"},
-{html:"Isocitrate DH <span class='green'>+1 NADH</span>",energy:{NADH:1},rev:false},
-{html:"α-KG DH <span class='green'>+1 NADH</span>",energy:{NADH:1},rev:false},
-{html:"Succinyl-CoA synthetase <span class='green'>+1 GTP</span>",energy:{ATP:1}},
-{html:"Succinate DH <span class='green'>+1 FADH2</span>",energy:{FADH2:1}},
-{html:"Malate DH <span class='green'>+1 NADH</span>",energy:{NADH:1}}
+const ETC=[
+{h:"<b>Electron Transport Chain</b>"},
+{h:"10 NADH × 2.5 ATP"},
+{h:"2 FADH2 × 1.5 ATP"},
+{h:"≈ <span class='green'>+28 ATP</span>",c:{ATP:28}}
 ];
+
+const PPP=[
+{h:"<b>Pentose Phosphate Pathway</b>"},
+{h:"G6P → 6PG (G6PD) <span class='purple'>+2 NADPH</span>",c:{NADPH:2},rev:false},
+{h:"Ribose-5-P formation"},
+{h:"Transketolase / Transaldolase"}
+];
+
+const glycogenesis=[
+{h:"<b>Glycogenesis</b>"},
+{h:"G6P ↔ G1P"},
+{h:"UDP-Glucose formation"},
+{h:"Glycogen synthase"},
+{h:"Branching enzyme"}
+];
+
+const glycogenolysis=[
+{h:"<b>Glycogenolysis</b>"},
+{h:"Glycogen phosphorylase"},
+{h:"Debranching enzyme"},
+{h:"G6P release"}
+];
+
+/* ================= KEYBOARD ================= */
 
 document.addEventListener("keydown",function(e){
 
-if(e.key==="Enter"){
-
-if(currentPathway==="absorption"){
-if(index<absorption.length){
-addStep(absorption[index],{},true);
-index++;
-}else{
-addStep("<span class='carbon'>[6C]</span> Glucose – Central Metabolic Substrate<br><br><b>Press G: Glycolysis | P: PPP | S: Glycogenesis | L: Lipogenesis | C: Cori | A: Cahill | N: Gluconeogenesis</b>");
-currentPathway="decision";
-}
+if(e.key==="Enter" && mode==="root"){
+add("<span class='carbon'>[6C]</span> Glucose – Central Metabolic Substrate<br><br><b>G: Glycolysis | T: TCA | E: ETC | P: PPP | S: Glycogenesis | O: Glycogenolysis | R: Reset | U: Undo | X: Rapid Mode</b>");
+mode="menu";
 }
 
-else if(currentPathway==="glycolysis"){
-if(index<glycolysis.length){
-let step=glycolysis[index];
-addStep(step.html,step.energy||{},step.rev!==false);
-index++;
-}else{
-addStep("<span class='carbon'>[3C]</span> Pyruvate – Central Junction<br><br><b>Press T: TCA | L: Lactate | A: Alanine | G: Gluconeogenesis</b>");
-currentPathway="postgly";
-}
-}
+if(e.key==="g"||e.key==="G"){mode="gly";index=0;}
+if(e.key==="t"||e.key==="T"){mode="tca";index=0;}
+if(e.key==="e"||e.key==="E"){mode="etc";index=0;}
+if(e.key==="p"||e.key==="P"){mode="ppp";index=0;}
+if(e.key==="s"||e.key==="S"){mode="glycogen";index=0;}
+if(e.key==="o"||e.key==="O"){mode="glycogenolysis";index=0;}
 
-else if(currentPathway==="tca"){
-if(index<tca.length){
-let step=tca[index];
-addStep(step.html,step.energy||{},step.rev!==false);
-index++;
-}else{
-addStep("NADH + FADH2 → Electron Transport Chain → <span class='green'>~30 ATP</span>",{ATP:30});
-addStep("<b>Glucose is the central metabolic currency of cellular life.</b>");
-currentPathway="done";
-}
-}
-
-}
-
-if(e.key==="Backspace") undo();
+if(e.key==="u"||e.key==="U") undo();
 if(e.key==="r"||e.key==="R") resetAll();
 
-if(e.key==="g"||e.key==="G"){
-currentPathway="glycolysis";
-index=0;
+if(e.key==="x"||e.key==="X"){
+document.body.classList.toggle("rapid");
 }
 
-if(e.key==="t"||e.key==="T"){
-currentPathway="tca";
-index=0;
+if(e.key==="Enter"){
+
+let current;
+
+if(mode==="gly") current=glycolysis;
+if(mode==="tca") current=TCA;
+if(mode==="etc") current=ETC;
+if(mode==="ppp") current=PPP;
+if(mode==="glycogen") current=glycogenesis;
+if(mode==="glycogenolysis") current=glycogenolysis;
+
+if(current && index<current.length){
+let step=current[index];
+add(step.h,step.c||{},step.rev!==false,true,step.carbonChange||0);
+index++;
+}
+
 }
 
 });
 
-</script>
+update();
 
+</script>
 </body>
 </html>
