@@ -2,14 +2,14 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Integrated Metabolic Network – Auditorium Mode</title>
+<title>Integrated Metabolic Network – Central Axis Model</title>
 
 <style>
 body{
     margin:0;
     padding:40px;
-    font-family: "Segoe UI", Arial;
     background:#0e1117;
+    font-family:"Segoe UI",Arial;
     color:#e6edf3;
 }
 
@@ -22,23 +22,22 @@ h1{
 
 .container{
     position:relative;
-    width:1000px;
+    width:1100px;
     margin:0 auto;
 }
 
 .node{
     position:absolute;
     text-align:center;
-    font-size:15px;
-    transition:opacity 0.5s ease;
     opacity:0;
+    transition:opacity 0.5s ease;
 }
 
 .node.show{opacity:1;}
 
 .title{
-    font-weight:600;
     font-size:16px;
+    font-weight:600;
 }
 
 .enzyme{
@@ -46,10 +45,27 @@ h1{
     color:#8b949e;
 }
 
+.arrow{
+    font-size:18px;
+    margin:4px 0;
+}
+
+.branch-btn{
+    display:inline-block;
+    padding:6px 14px;
+    margin:6px;
+    border:1px solid #30363d;
+    cursor:pointer;
+    font-size:13px;
+}
+
+.branch-btn:hover{
+    background:#21262d;
+}
+
 .carbon{color:#58a6ff;}
 .green{color:#3fb950;}
 .red{color:#f85149;}
-.purple{color:#bc8cff;}
 
 .energy-box{
     position:absolute;
@@ -58,6 +74,7 @@ h1{
     border:1px solid #30363d;
     padding:15px;
     width:200px;
+    font-size:14px;
 }
 
 svg{
@@ -83,7 +100,7 @@ line{
 
 <div class="container" id="canvas">
 
-<svg id="connections"></svg>
+<svg id="svg"></svg>
 
 <div class="energy-box">
 <strong>Energy</strong><br><br>
@@ -98,10 +115,13 @@ NADPH: <span id="nadph">0</span>
 <script>
 
 const canvas = document.getElementById("canvas");
-const svg = document.getElementById("connections");
+const svg = document.getElementById("svg");
 
 let energy = {ATP:0,NADH:0,FADH2:0,NADPH:0};
-let index = 0;
+let axisY = 60;
+let previousNode = null;
+let phase = "glycolysis";
+let branchActive = false;
 
 const glycolysis = [
 {m:"<span class='carbon'>[6C]</span> Glucose", e:"Hexokinase", atp:-1},
@@ -114,86 +134,149 @@ const glycolysis = [
 {m:"<span class='carbon'>[3C]</span> Pyruvate"}
 ];
 
-function createNode(text, enzyme, x, y){
+const tca = [
+{m:"Acetyl-CoA", e:"Pyruvate dehydrogenase", nadh:1},
+{m:"Citrate", e:"Citrate synthase"},
+{m:"Isocitrate", e:"Isocitrate dehydrogenase", nadh:1},
+{m:"α-Ketoglutarate", e:"α-KG dehydrogenase", nadh:1},
+{m:"Succinyl-CoA", e:"Succinyl-CoA synthetase", atp:1},
+{m:"Succinate", e:"Succinate dehydrogenase", fadh2:1},
+{m:"Fumarate", e:"Fumarase"},
+{m:"Malate", e:"Malate dehydrogenase", nadh:1}
+];
 
-let div = document.createElement("div");
-div.className="node";
-div.style.left=x+"px";
-div.style.top=y+"px";
-
-div.innerHTML = `
-<div class="title">${text}</div>
-<div class="enzyme">${enzyme||""}</div>
-`;
-
-canvas.appendChild(div);
-
-setTimeout(()=>div.classList.add("show"),100);
-
-return div;
+function createNode(text, enzyme){
+    let div = document.createElement("div");
+    div.className="node";
+    div.style.left="480px";
+    div.style.top=axisY+"px";
+    div.innerHTML=`<div class="title">${text}</div>
+                   <div class="enzyme">${enzyme||""}</div>`;
+    canvas.appendChild(div);
+    setTimeout(()=>div.classList.add("show"),100);
+    axisY+=90;
+    return div;
 }
 
 function connect(a,b){
-let line = document.createElementNS("http://www.w3.org/2000/svg","line");
+    let line = document.createElementNS("http://www.w3.org/2000/svg","line");
+    let r1 = a.getBoundingClientRect();
+    let r2 = b.getBoundingClientRect();
+    let p = canvas.getBoundingClientRect();
 
-let rect1 = a.getBoundingClientRect();
-let rect2 = b.getBoundingClientRect();
-let parentRect = canvas.getBoundingClientRect();
-
-line.setAttribute("x1", rect1.left - parentRect.left + rect1.width/2);
-line.setAttribute("y1", rect1.top - parentRect.top + rect1.height);
-line.setAttribute("x2", rect2.left - parentRect.left + rect2.width/2);
-line.setAttribute("y2", rect2.top - parentRect.top);
-
-svg.appendChild(line);
+    line.setAttribute("x1", r1.left - p.left + r1.width/2);
+    line.setAttribute("y1", r1.top - p.top + r1.height);
+    line.setAttribute("x2", r2.left - p.left + r2.width/2);
+    line.setAttribute("y2", r2.top - p.top);
+    svg.appendChild(line);
 }
 
 function updateEnergy(){
-atp.textContent = energy.ATP;
-nadh.textContent = energy.NADH;
-fadh2.textContent = energy.FADH2;
-nadph.textContent = energy.NADPH;
+    atp.textContent = energy.ATP;
+    nadh.textContent = energy.NADH;
+    fadh2.textContent = energy.FADH2;
+    nadph.textContent = energy.NADPH;
 }
 
-let previousNode = null;
+let gIndex = 0;
+let tIndex = 0;
 
 document.addEventListener("keydown",function(e){
 
-if(e.key==="Enter" && index<glycolysis.length){
+if(e.key==="Enter" && !branchActive){
 
-let y = 80 + index*90;
-let node = createNode(glycolysis[index].m, glycolysis[index].e, 400, y);
+if(phase==="glycolysis" && gIndex<glycolysis.length){
 
-if(previousNode){
-setTimeout(()=>connect(previousNode,node),200);
-}
+let step = glycolysis[gIndex];
+let node = createNode(step.m, step.e);
+if(previousNode) connect(previousNode,node);
+previousNode = node;
 
-if(glycolysis[index].atp) energy.ATP += glycolysis[index].atp;
-if(glycolysis[index].nadh) energy.NADH += glycolysis[index].nadh;
-
+if(step.atp) energy.ATP+=step.atp;
+if(step.nadh) energy.NADH+=step.nadh;
 updateEnergy();
 
-previousNode = node;
-index++;
+gIndex++;
 
-if(index===glycolysis.length){
-showBranches(node);
+if(gIndex===glycolysis.length){
+phase="tca";
+}
+
+}
+
+else if(phase==="tca" && tIndex<tca.length){
+
+let step = tca[tIndex];
+let node = createNode(step.m, step.e);
+connect(previousNode,node);
+previousNode=node;
+
+if(step.atp) energy.ATP+=step.atp;
+if(step.nadh) energy.NADH+=step.nadh;
+if(step.fadh2) energy.FADH2+=step.fadh2;
+updateEnergy();
+
+tIndex++;
+
+if(tIndex===tca.length){
+showIntegrationNode(node);
+phase="integration";
+}
+
 }
 
 }
 
 });
 
-function showBranches(pyruvateNode){
+function showIntegrationNode(lastNode){
 
-let tca = createNode("TCA Cycle", "", 150, 650);
-let lactate = createNode("Lactate", "Lactate dehydrogenase", 650, 650);
+let node = createNode("Metabolic Integration","");
+connect(lastNode,node);
 
-setTimeout(()=>{
-connect(pyruvateNode,tca);
-connect(pyruvateNode,lactate);
-},200);
+let menu = document.createElement("div");
+menu.className="node show";
+menu.style.left="330px";
+menu.style.top=(axisY)+"px";
+menu.innerHTML=`
+<div class="branch-btn" onclick="expandBranch('etc')">Electron Transport Chain</div>
+<div class="branch-btn" onclick="expandBranch('glu')">Gluconeogenesis</div>
+<div class="branch-btn" onclick="expandBranch('lactate')">Lactate</div>
+<div class="branch-btn" onclick="expandBranch('alanine')">Alanine</div>
+`;
+canvas.appendChild(menu);
+}
 
+function expandBranch(type){
+
+if(branchActive) return;
+branchActive = true;
+
+let x = 200;
+let y = axisY+80;
+
+let branchTitle = createSideNode(type.toUpperCase(), x, y);
+
+if(type==="etc"){
+createSideNode("Complex I",x,y+70);
+createSideNode("Complex II",x,y+140);
+createSideNode("Complex III",x,y+210);
+createSideNode("Complex IV",x,y+280);
+createSideNode("ATP Synthase +34 ATP",x,y+350);
+energy.ATP+=34;
+updateEnergy();
+}
+
+}
+
+function createSideNode(text,x,y){
+let div=document.createElement("div");
+div.className="node show";
+div.style.left=x+"px";
+div.style.top=y+"px";
+div.innerHTML=`<div class="title">${text}</div>`;
+canvas.appendChild(div);
+return div;
 }
 
 </script>
