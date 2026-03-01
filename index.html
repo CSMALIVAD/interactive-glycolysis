@@ -1,159 +1,278 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Interactive Glycolysis</title>
+<title>Metabolic Atlas Explorer</title>
 
 <style>
-body {
-    font-family: Arial, sans-serif;
-    background: #ffffff;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100vh;
-    margin: 0;
+body{
+    margin:0;
+    font-family:Arial;
+    background:#ffffff;
+    overflow:hidden;
 }
 
-.container {
-    width: 700px;
-    text-align: center;
+#toolbar{
+    position:fixed;
+    top:10px;
+    left:10px;
+    z-index:1000;
 }
 
-.card {
-    border: 1px solid #ccc;
-    padding: 30px;
-    border-radius: 10px;
-    box-shadow: 0 6px 12px rgba(0,0,0,0.05);
-    opacity: 0;
-    transform: translateY(20px);
-    transition: all 0.4s ease;
+button{
+    padding:6px 10px;
+    margin:4px;
+    border:1px solid #000;
+    background:#fff;
+    cursor:pointer;
 }
 
-.card.show {
-    opacity: 1;
-    transform: translateY(0);
+#canvas{
+    width:100vw;
+    height:100vh;
+    overflow:auto;
+    transform-origin:0 0;
 }
 
-h1 {
-    margin-bottom: 20px;
+.map{
+    position:relative;
+    width:2000px;
+    height:1400px;
 }
 
-h2 {
-    margin-top: 0;
+.node{
+    position:absolute;
+    border:1px solid #aaa;
+    padding:10px;
+    border-radius:6px;
+    background:#fff;
+    min-width:180px;
+    text-align:center;
 }
 
-.carbon {
-    font-weight: bold;
-    font-size: 18px;
+.carbon{color:#0066cc;font-weight:bold;}
+.green{color:green;}
+.red{color:red;}
+
+.arrow{
+    position:absolute;
+    width:2px;
+    background:#000;
 }
 
-.energy {
-    margin-top: 10px;
-    font-style: italic;
-    color: #555;
+.arrow:after{
+    content:"";
+    position:absolute;
+    bottom:0;
+    left:-4px;
+    border-width:6px 4px 0 4px;
+    border-style:solid;
+    border-color:#000 transparent transparent transparent;
 }
 
-button {
-    margin-top: 20px;
-    padding: 8px 16px;
-    border: none;
-    border-radius: 6px;
-    background: #000;
-    color: #fff;
-    cursor: pointer;
+.branch-btn{
+    margin-top:5px;
+    font-size:12px;
 }
 
-.footer {
-    margin-top: 10px;
-    font-size: 14px;
-}
 </style>
 </head>
 <body>
 
-<div class="container">
-    <h1>Interactive Glycolysis</h1>
-    <div id="card" class="card"></div>
-    <button onclick="resetSteps()">Reset</button>
-    <div class="footer">Press ENTER to move to next step</div>
+<div id="toolbar">
+<button onclick="zoomIn()">Zoom +</button>
+<button onclick="zoomOut()">Zoom -</button>
+<button onclick="resetZoom()">Reset Zoom</button>
+<button onclick="buildAtlas()">Build Atlas</button>
+</div>
+
+<div id="canvas">
+<div class="map" id="map"></div>
 </div>
 
 <script>
-const steps = [
-{
-title: "Step 1",
-content: "<div class='carbon'>[6C] Glucose → [6C] Glucose-6-phosphate</div><br>Enzyme: Hexokinase<br><div class='energy'>ATP consumed</div>"
-},
-{
-title: "Step 2",
-content: "<div class='carbon'>[6C] Glucose-6-phosphate → [6C] Fructose-6-phosphate</div><br>Enzyme: Phosphoglucose isomerase</div>"
-},
-{
-title: "Step 3",
-content: "<div class='carbon'>[6C] Fructose-6-phosphate → [6C] Fructose-1,6-bisphosphate</div><br>Enzyme: Phosphofructokinase-1<br><div class='energy'>ATP consumed</div>"
-},
-{
-title: "Step 4",
-content: "<div class='carbon'>[6C] Fructose-1,6-bisphosphate → [3C] DHAP + [3C] G3P</div><br>Enzyme: Aldolase</div>"
-},
-{
-title: "Step 5",
-content: "<div class='carbon'>[3C] DHAP → [3C] G3P</div><br>Enzyme: Triose phosphate isomerase</div>"
-},
-{
-title: "Step 6",
-content: "<div class='carbon'>[3C] G3P → [3C] 1,3-Bisphosphoglycerate</div><br>Enzyme: Glyceraldehyde-3-phosphate dehydrogenase<br><div class='energy'>2 NADH produced</div>"
-},
-{
-title: "Step 7",
-content: "<div class='carbon'>[3C] 1,3-Bisphosphoglycerate → [3C] 3-Phosphoglycerate</div><br>Enzyme: Phosphoglycerate kinase<br><div class='energy'>2 ATP produced</div>"
-},
-{
-title: "Step 8",
-content: "<div class='carbon'>[3C] 3-Phosphoglycerate → [3C] 2-Phosphoglycerate</div><br>Enzyme: Phosphoglycerate mutase</div>"
-},
-{
-title: "Step 9",
-content: "<div class='carbon'>[3C] 2-Phosphoglycerate → [3C] Phosphoenolpyruvate</div><br>Enzyme: Enolase</div>"
-},
-{
-title: "Step 10",
-content: "<div class='carbon'>[3C] Phosphoenolpyruvate → [3C] Pyruvate</div><br>Enzyme: Pyruvate kinase<br><div class='energy'>2 ATP produced</div>"
-},
-{
-title: "Final Output",
-content: "<div class='carbon'>Net yield: 2 ATP + 2 NADH + 2 Pyruvate (3C each)</div>"
+
+let scale=1;
+const map=document.getElementById("map");
+
+/* ========================
+   UTILITY FUNCTIONS
+========================= */
+
+function createNode(x,y,html,id){
+    let div=document.createElement("div");
+    div.className="node";
+    div.style.left=x+"px";
+    div.style.top=y+"px";
+    if(id) div.id=id;
+    div.innerHTML=html;
+    map.appendChild(div);
+    return div;
 }
+
+function connect(from,to){
+    let f=document.getElementById(from);
+    let t=document.getElementById(to);
+    if(!f||!t) return;
+
+    let fx=f.offsetLeft+f.offsetWidth/2;
+    let fy=f.offsetTop+f.offsetHeight;
+    let tx=t.offsetLeft+t.offsetWidth/2;
+    let ty=t.offsetTop;
+
+    let arrow=document.createElement("div");
+    arrow.className="arrow";
+    arrow.style.left=fx+"px";
+    arrow.style.top=fy+"px";
+    arrow.style.height=(ty-fy)+"px";
+    map.appendChild(arrow);
+}
+
+/* ========================
+   BUILD CORE PATHWAY
+========================= */
+
+function buildAtlas(){
+
+map.innerHTML="";
+
+/* Glycolysis End Node */
+
+createNode(900,200,
+`<b>Pyruvate</b><br>
+<span class='carbon'>[3C]</span>
+<br>
+<button class="branch-btn" onclick="branchTCA()">TCA</button>
+<button class="branch-btn" onclick="branchLactate()">Lactate</button>
+<button class="branch-btn" onclick="branchAlanine()">Alanine</button>
+<button class="branch-btn" onclick="branchGNG()">Gluconeogenesis</button>
+<button class="branch-btn" onclick="branchFA()">Fatty Acid Synth</button>
+<button class="branch-btn" onclick="branchBeta()">β-oxidation</button>
+`,"pyruvate");
+
+}
+
+/* ========================
+   BRANCH FUNCTIONS
+========================= */
+
+function branchTCA(){
+
+createNode(900,350,
+`<b>Acetyl-CoA</b><br>
+<span class='carbon'>[2C]</span>`,"acetyl");
+
+connect("pyruvate","acetyl");
+
+/* TCA CYCLE */
+
+let tcaSteps=[
+"Citrate [6C]",
+"Isocitrate [6C]",
+"α-KG [5C] + CO₂",
+"Succinyl-CoA [4C]",
+"Succinate",
+"Fumarate",
+"Malate",
+"OAA [4C]"
 ];
 
-let currentStep = 0;
-const card = document.getElementById("card");
-
-function showStep() {
-    if (currentStep < steps.length) {
-        card.classList.remove("show");
-        setTimeout(() => {
-            card.innerHTML = "<h2>" + steps[currentStep].title + "</h2>" + steps[currentStep].content;
-            card.classList.add("show");
-            currentStep++;
-        }, 200);
-    }
-}
-
-function resetSteps() {
-    currentStep = 0;
-    card.innerHTML = "";
-    card.classList.remove("show");
-}
-
-document.addEventListener("keydown", function(event) {
-    if (event.key === "Enter") {
-        showStep();
-    }
+let y=450;
+tcaSteps.forEach((s,i)=>{
+createNode(900,y,`<b>${s}</b>`,"tca"+i);
+if(i===0) connect("acetyl","tca0");
+else connect("tca"+(i-1),"tca"+i);
+y+=100;
 });
-</script>
 
+}
+
+function branchLactate(){
+createNode(650,350,
+`<b>Lactate</b><br><span class='carbon'>[3C]</span>
+<br>Anaerobic<br><span class='green'>NAD+ regenerated</span>`,"lactate");
+connect("pyruvate","lactate");
+}
+
+function branchAlanine(){
+createNode(1150,350,
+`<b>Alanine</b><br><span class='carbon'>[3C]</span>
+<br>Cahill Cycle`,"alanine");
+connect("pyruvate","alanine");
+}
+
+function branchGNG(){
+createNode(650,600,
+`<b>Gluconeogenesis</b><br>
+Pyruvate → OAA → PEP → Glucose
+<br><span class='red'>ATP used</span>`,"gng");
+connect("pyruvate","gng");
+}
+
+function branchFA(){
+createNode(1150,600,
+`<b>Fatty Acid Synthesis</b><br>
+Acetyl-CoA → FA
+<br><span class='green'>NADPH required</span>`,"fa");
+connect("pyruvate","fa");
+}
+
+/* ========================
+   FULL β-OXIDATION SPIRAL
+========================= */
+
+function branchBeta(){
+
+createNode(400,350,
+`<b>Fatty Acyl-CoA</b>
+<br><span class='carbon'>[16C]</span>`,"beta0");
+
+connect("pyruvate","beta0");
+
+/* Spiral Logic */
+
+let carbons=16;
+let y=450;
+let step=1;
+
+while(carbons>2){
+
+createNode(400,y,
+`<b>β-Oxidation Cycle ${step}</b>
+<br><span class='carbon'>[${carbons}C]</span> → <span class='carbon'>[${carbons-2}C]</span>
+<br><span class='green'>1 FADH₂ + 1 NADH + 1 Acetyl-CoA</span>`,"beta"+step);
+
+if(step===1) connect("beta0","beta1");
+else connect("beta"+(step-1),"beta"+step);
+
+carbons-=2;
+y+=120;
+step++;
+}
+
+}
+
+/* ========================
+   ZOOM CONTROLS
+========================= */
+
+function zoomIn(){
+scale+=0.1;
+document.getElementById("canvas").style.transform=`scale(${scale})`;
+}
+function zoomOut(){
+scale-=0.1;
+document.getElementById("canvas").style.transform=`scale(${scale})`;
+}
+function resetZoom(){
+scale=1;
+document.getElementById("canvas").style.transform="scale(1)";
+}
+
+/* INITIAL BUILD */
+
+buildAtlas();
+
+</script>
 </body>
 </html>
