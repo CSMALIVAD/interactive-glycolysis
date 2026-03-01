@@ -2,32 +2,54 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Metabolic Pathway – Exam Mode</title>
+<title>Metabolic Atlas Engine – Full Professional Version</title>
 
 <style>
 body{
-    font-family: Arial, sans-serif;
-    background:#ffffff;
     margin:0;
     padding:20px;
+    font-family:Segoe UI, Arial;
+    background:#ffffff;
 }
 
 h1{
     text-align:center;
-    color:#222;
+    margin-bottom:20px;
 }
 
-#pathway{
-    max-width:700px;
-    margin:0 auto;
-    position:relative;
+.layout{
+    display:flex;
+    gap:40px;
+    align-items:flex-start;
+}
+
+.columns{
+    display:flex;
+    gap:40px;
+    flex-wrap:wrap;
+}
+
+.column{
+    min-width:330px;
+    padding:15px;
+    border:2px solid #ddd;
+    border-radius:8px;
+}
+
+.column.active{
+    border-color:#000;
+}
+
+.column h3{
+    text-align:center;
+    margin-top:0;
 }
 
 .step{
+    margin:18px 0;
     text-align:center;
-    margin:25px 0;
     opacity:0;
-    transition:opacity 0.4s ease;
+    transition:opacity 0.3s ease;
 }
 
 .step.show{
@@ -35,205 +57,290 @@ h1{
 }
 
 .metabolite{
-    font-size:20px;
-    font-weight:bold;
+    font-size:16px;
+    font-weight:600;
 }
-
-.enzyme{
-    font-size:15px;
-    color:#555;
-}
-
-.carbon{
-    color:#0077cc;
-    font-weight:bold;
-}
-
-.green{color:green;}
-.red{color:red;}
 
 .arrow{
-    font-size:30px;
-    color:#444;
-    margin:10px 0;
+    font-size:24px;
+    margin:6px 0;
 }
 
-.side-branch{
-    position:absolute;
-    left:750px;
-    width:350px;
-    border-left:3px solid #999;
-    padding-left:15px;
-    top:0;
+.carbon{color:#0077cc;font-weight:bold;}
+.green{color:green;}
+.red{color:#cc0000;}
+.purple{color:#800080;}
+
+.irreversible{
+    border-left:5px solid black;
+    padding-left:8px;
 }
 
-.branch-step{
-    margin:20px 0;
-    font-size:14px;
-    color:#333;
+.reversible{
+    border-left:5px solid #888;
+    padding-left:8px;
 }
 
-.controls{
-    text-align:center;
-    margin-bottom:20px;
+.energy-panel{
+    min-width:220px;
+    padding:15px;
+    border:2px solid #000;
+    border-radius:8px;
 }
 
-button{
-    padding:6px 12px;
-    margin:5px;
+.energy-panel h3{
+    margin-top:0;
+}
+
+.legend{
+    margin-top:25px;
+    border-top:1px solid #ccc;
+    padding-top:10px;
+    font-size:13px;
 }
 </style>
 </head>
 
 <body>
 
-<h1>Metabolic Pathway – Exam Preparation Mode</h1>
+<h1>Metabolic Atlas Engine – Full Professional Mode</h1>
 
-<div class="controls">
-<button onclick="resetAll()">Reset (R)</button>
+<div class="layout">
+<div class="columns" id="columns"></div>
+
+<div class="energy-panel">
+<h3>Energy Tracker</h3>
+ATP: <span id="atp">0</span><br>
+NADH: <span id="nadh">0</span><br>
+FADH2: <span id="fadh2">0</span><br>
+NADPH: <span id="nadph">0</span>
+</div>
 </div>
 
-<div id="pathway"></div>
+<div class="legend">
+<b>Legend:</b><br>
+<span class="carbon">Blue</span> = Carbon number |
+<span class="red">Red</span> = ATP consumed |
+<span class="green">Green</span> = ATP/NADH produced |
+<span class="purple">Purple</span> = NADPH |
+Black border = Irreversible |
+Grey border = Reversible (↔)
+<br><br>
+Controls:
+ENTER = Advance active column |
+1 = Glycolysis |
+2 = TCA |
+3 = PPP |
+4 = Gluconeogenesis |
+5 = β-oxidation |
+6 = Lactate |
+7 = Alanine |
+8 = ETC
+</div>
 
 <script>
 
-let index=0;
-let pathway=document.getElementById("pathway");
+/* ================= GLOBAL STATE ================= */
 
-/* ================= GLYCOLYSIS ================= */
+const state = {
+    columns:{},
+    active:"glycolysis",
+    energy:{ATP:0,NADH:0,FADH2:0,NADPH:0}
+};
 
-const glycolysis=[
-{
-met:"<span class='carbon'>[6C]</span> Glucose",
-enz:"Hexokinase",
-energy:"<span class='red'>ATP used</span>"
-},
-{
-met:"<span class='carbon'>[6C]</span> Glucose-6-phosphate",
-enz:"Phosphoglucose isomerase",
-energy:""
-},
-{
-met:"<span class='carbon'>[6C]</span> Fructose-6-phosphate",
-enz:"PFK-1",
-energy:"<span class='red'>ATP used</span>"
-},
-{
-met:"<span class='carbon'>[6C]</span> Fructose-1,6-bisphosphate",
-enz:"Aldolase",
-energy:""
-},
-{
-met:"<span class='carbon'>[3C]</span> PEP",
-enz:"Pyruvate kinase",
-energy:"<span class='green'>ATP produced</span>",
-integration:true
-},
-{
-met:"<span class='carbon'>[3C]</span> Pyruvate",
-enz:"Central metabolic junction",
-energy:""
+/* ================= PATHWAY DEFINITIONS ================= */
+
+const pathways = {
+
+glycolysis:[
+{met:"<span class='carbon'>[6C]</span> Glucose", enz:"Hexokinase", atp:-1, irr:true},
+{met:"<span class='carbon'>[6C]</span> G6P ↔", enz:"Phosphoglucose isomerase"},
+{met:"<span class='carbon'>[6C]</span> F6P", enz:"PFK-1", atp:-1, irr:true},
+{met:"<span class='carbon'>[6C]</span> F1,6BP ↔", enz:"Aldolase"},
+{met:"<span class='carbon'>[3C]</span> DHAP ↔ <span class='carbon'>[3C]</span> G3P", enz:"TPI"},
+{met:"<span class='carbon'>[3C]</span> G3P", enz:"G3P DH", nadh:2},
+{met:"<span class='carbon'>[3C]</span> 1,3-BPG", enz:"PGK", atp:2},
+{met:"<span class='carbon'>[3C]</span> 3PG ↔", enz:"PG Mutase"},
+{met:"<span class='carbon'>[3C]</span> 2PG ↔", enz:"Enolase"},
+{met:"<span class='carbon'>[3C]</span> PEP", enz:"Pyruvate kinase", atp:2, irr:true},
+{met:"<span class='carbon'>[3C]</span> Pyruvate (Branch Point)", branch:true}
+],
+
+tca:[
+{met:"<span class='carbon'>[2C]</span> Acetyl-CoA + OAA", irr:true},
+{met:"Citrate ↔"},
+{met:"Isocitrate", nadh:1, irr:true},
+{met:"α-KG", nadh:1, irr:true},
+{met:"Succinyl-CoA", atp:1},
+{met:"Succinate", fadh2:1},
+{met:"Fumarate ↔"},
+{met:"Malate", nadh:1}
+],
+
+ppp:[
+{met:"<span class='carbon'>[6C]</span> G6P", nadph:2, irr:true},
+{met:"<span class='carbon'>[5C]</span> Ribulose-5P ↔"},
+{met:"<span class='carbon'>[5C]</span> Ribose-5P ↔"},
+{met:"<span class='carbon'>[3C]</span> + <span class='carbon'>[6C]</span> rearrangements"}
+],
+
+gluconeogenesis:[
+{met:"<span class='carbon'>[3C]</span> Pyruvate"},
+{met:"<span class='carbon'>[4C]</span> OAA"},
+{met:"<span class='carbon'>[3C]</span> PEP"},
+{met:"F1,6BP"},
+{met:"F6P"},
+{met:"G6P"},
+{met:"<span class='carbon'>[6C]</span> Glucose"}
+],
+
+beta:[
+{met:"<span class='carbon'>[16C]</span> Fatty Acyl-CoA", dynamic:true}
+],
+
+lactate:[
+{met:"<span class='carbon'>[3C]</span> Pyruvate ↔ <span class='carbon'>[3C]</span> Lactate", nadh:-1}
+],
+
+alanine:[
+{met:"<span class='carbon'>[3C]</span> Pyruvate ↔ <span class='carbon'>[3C]</span> Alanine"}
+],
+
+etc:[
+{met:"Complex I", nadh:-1},
+{met:"Complex II"},
+{met:"Complex III"},
+{met:"Complex IV"},
+{met:"ATP Synthase", atp:34}
+]
+
+};
+
+/* ================= ENGINE ================= */
+
+function createColumn(id){
+if(state.columns[id]) return;
+
+const col=document.createElement("div");
+col.className="column";
+col.id=id;
+col.innerHTML=`<h3>${id.toUpperCase()}</h3>`;
+document.getElementById("columns").appendChild(col);
+
+state.columns[id]={steps:pathways[id],index:0,element:col};
+setActive(id);
 }
-];
 
-/* ============= FUNCTIONS ============= */
+function setActive(id){
+state.active=id;
+document.querySelectorAll(".column").forEach(c=>c.classList.remove("active"));
+if(state.columns[id])
+state.columns[id].element.classList.add("active");
+}
 
-function addStep(step){
+function updateEnergy(){
+document.getElementById("atp").innerText=state.energy.ATP;
+document.getElementById("nadh").innerText=state.energy.NADH;
+document.getElementById("fadh2").innerText=state.energy.FADH2;
+document.getElementById("nadph").innerText=state.energy.NADPH;
+}
 
-let div=document.createElement("div");
-div.className="step";
+function advance(){
+const col=state.columns[state.active];
+if(!col) return;
+if(col.index>=col.steps.length) return;
+
+const step=col.steps[col.index];
+
+if(step.dynamic){
+runBetaOxidation(col);
+col.index++;
+return;
+}
+
+const div=document.createElement("div");
+div.className="step "+(step.irr?"irreversible":"reversible");
+
+let energyText="";
+
+if(step.atp){
+state.energy.ATP+=step.atp;
+energyText+= step.atp>0?`<span class="green">+${step.atp} ATP</span>`:`<span class="red">${step.atp} ATP</span>`;
+}
+if(step.nadh){
+state.energy.NADH+=step.nadh;
+energyText+=` <span class="green">${step.nadh>0?'+':''}${step.nadh} NADH</span>`;
+}
+if(step.fadh2){
+state.energy.FADH2+=step.fadh2;
+energyText+=` <span class="green">+${step.fadh2} FADH2</span>`;
+}
+if(step.nadph){
+state.energy.NADPH+=step.nadph;
+energyText+=` <span class="purple">+${step.nadph} NADPH</span>`;
+}
 
 div.innerHTML=`
 <div class="metabolite">${step.met}</div>
-<div class="enzyme">Enzyme: ${step.enz}</div>
-<div>${step.energy}</div>
+<div>Enzyme: ${step.enz||""}</div>
+<div>${energyText}</div>
 <div class="arrow">↓</div>
 `;
 
-pathway.appendChild(div);
+col.element.appendChild(div);
 setTimeout(()=>div.classList.add("show"),50);
+updateEnergy();
 
-if(step.integration){
-showIntegrationHint();
+if(step.branch){
+createColumn("tca");
+createColumn("gluconeogenesis");
+createColumn("lactate");
+createColumn("alanine");
+createColumn("etc");
 }
 
+col.index++;
 }
 
-function nextStep(){
-if(index<glycolysis.length){
-addStep(glycolysis[index]);
-index++;
-}
-}
-
-function resetAll(){
-pathway.innerHTML="";
-index=0;
-removeSideBranch();
-}
-
-/* ============ INTEGRATION ============ */
-
-function showIntegrationHint(){
-
-let hint=document.createElement("div");
-hint.className="step show";
-hint.innerHTML=`
-<div style="color:#aa0000;font-weight:bold;">
-Integration Available:
-Press T (TCA) | P (PPP) | G (Gluconeogenesis)
-</div>
+function runBetaOxidation(col){
+let carbons=16;
+while(carbons>2){
+state.energy.NADH+=1;
+state.energy.FADH2+=1;
+state.energy.ATP+=0;
+let div=document.createElement("div");
+div.className="step irreversible show";
+div.innerHTML=`
+<div class="metabolite"><span class="carbon">[${carbons}C]</span> → <span class="carbon">[${carbons-2}C]</span></div>
+<div><span class="green">+1 NADH +1 FADH2 +1 Acetyl-CoA</span></div>
+<div class="arrow">↓</div>
 `;
-pathway.appendChild(hint);
-
+col.element.appendChild(div);
+carbons-=2;
+}
+updateEnergy();
 }
 
-function removeSideBranch(){
-let old=document.querySelector(".side-branch");
-if(old) old.remove();
-}
-
-function buildTCA(){
-
-removeSideBranch();
-
-let branch=document.createElement("div");
-branch.className="side-branch";
-branch.innerHTML=`
-<h3 style="color:#444;">TCA Cycle</h3>
-<div class="branch-step">Acetyl-CoA + OAA → Citrate</div>
-<div class="branch-step">Citrate → Isocitrate</div>
-<div class="branch-step">Isocitrate → α-KG <span class='green'>NADH</span></div>
-<div class="branch-step">α-KG → Succinyl-CoA <span class='green'>NADH</span></div>
-<div class="branch-step">Succinate → Fumarate <span class='green'>FADH₂</span></div>
-<div class="branch-step">Malate → OAA <span class='green'>NADH</span></div>
-`;
-document.body.appendChild(branch);
-}
-
-function buildPPP(){
-removeSideBranch();
-let branch=document.createElement("div");
-branch.className="side-branch";
-branch.innerHTML=`
-<h3 style="color:#444;">Pentose Phosphate Pathway</h3>
-<div class="branch-step">G6P → 6PG</div>
-<div class="branch-step"><span class='green'>NADPH produced</span></div>
-<div class="branch-step">Ribulose-5P</div>
-`;
-document.body.appendChild(branch);
-}
-
-/* ============ KEYBOARD ============ */
+/* ================= KEYBOARD ================= */
 
 document.addEventListener("keydown",function(e){
 
-if(e.key==="Enter") nextStep();
-if(e.key==="r"||e.key==="R") resetAll();
-if(e.key==="T"||e.key==="t") buildTCA();
-if(e.key==="P"||e.key==="p") buildPPP();
+if(e.key==="Enter") advance();
+
+if(e.key==="1") setActive("glycolysis");
+if(e.key==="2") setActive("tca");
+if(e.key==="3") setActive("ppp");
+if(e.key==="4") setActive("gluconeogenesis");
+if(e.key==="5") createColumn("beta"),setActive("beta");
+if(e.key==="6") setActive("lactate");
+if(e.key==="7") setActive("alanine");
+if(e.key==="8") setActive("etc");
 
 });
+
+/* ================= INIT ================= */
+
+createColumn("glycolysis");
 
 </script>
 
