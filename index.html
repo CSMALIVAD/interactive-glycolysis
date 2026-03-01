@@ -2,277 +2,219 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Metabolic Atlas Explorer</title>
+<title>Metabolic Pathway Explorer</title>
 
 <style>
 body{
-    margin:0;
-    font-family:Arial;
+    font-family: Arial, sans-serif;
     background:#ffffff;
-    overflow:hidden;
+    margin:0;
+    padding:20px;
 }
 
-#toolbar{
-    position:fixed;
-    top:10px;
-    left:10px;
-    z-index:1000;
-}
-
-button{
-    padding:6px 10px;
-    margin:4px;
-    border:1px solid #000;
-    background:#fff;
-    cursor:pointer;
-}
-
-#canvas{
-    width:100vw;
-    height:100vh;
-    overflow:auto;
-    transform-origin:0 0;
-}
-
-.map{
-    position:relative;
-    width:2000px;
-    height:1400px;
-}
-
-.node{
-    position:absolute;
-    border:1px solid #aaa;
-    padding:10px;
-    border-radius:6px;
-    background:#fff;
-    min-width:180px;
+h1{
     text-align:center;
+}
+
+#pathway{
+    max-width:800px;
+    margin:0 auto;
+}
+
+.card{
+    border:1px solid #ccc;
+    border-radius:6px;
+    padding:15px;
+    margin:12px 0;
+    opacity:0;
+    transform:translateY(15px);
+    transition:all 0.4s ease;
+}
+
+.card.show{
+    opacity:1;
+    transform:translateY(0);
+}
+
+.irreversible{
+    border-left:5px solid #000;
 }
 
 .carbon{color:#0066cc;font-weight:bold;}
 .green{color:green;}
 .red{color:red;}
 
-.arrow{
-    position:absolute;
-    width:2px;
-    background:#000;
+.integration{
+    background:#f9f9f9;
+    border:1px dashed #aaa;
+    padding:10px;
+    margin-top:10px;
+    font-size:14px;
 }
 
-.arrow:after{
-    content:"";
-    position:absolute;
-    bottom:0;
-    left:-4px;
-    border-width:6px 4px 0 4px;
-    border-style:solid;
-    border-color:#000 transparent transparent transparent;
+.controls{
+    text-align:center;
+    margin-bottom:20px;
 }
 
-.branch-btn{
-    margin-top:5px;
-    font-size:12px;
+button{
+    padding:6px 10px;
+    margin:5px;
 }
-
 </style>
 </head>
+
 <body>
 
-<div id="toolbar">
-<button onclick="zoomIn()">Zoom +</button>
-<button onclick="zoomOut()">Zoom -</button>
-<button onclick="resetZoom()">Reset Zoom</button>
-<button onclick="buildAtlas()">Build Atlas</button>
+<h1>Metabolic Pathway Explorer</h1>
+
+<div class="controls">
+<button onclick="resetAll()">Reset (R)</button>
+<button onclick="undo()">Undo (←)</button>
 </div>
 
-<div id="canvas">
-<div class="map" id="map"></div>
-</div>
+<div id="pathway"></div>
 
 <script>
 
-let scale=1;
-const map=document.getElementById("map");
+let pathway=document.getElementById("pathway");
+let index=0;
+let mode="glycolysis";
 
-/* ========================
-   UTILITY FUNCTIONS
-========================= */
+/* ================== DATA ================== */
 
-function createNode(x,y,html,id){
-    let div=document.createElement("div");
-    div.className="node";
-    div.style.left=x+"px";
-    div.style.top=y+"px";
-    if(id) div.id=id;
-    div.innerHTML=html;
-    map.appendChild(div);
-    return div;
-}
+const glycolysis=[
+{r:"<span class='carbon'>[6C]</span> Glucose → <span class='carbon'>[6C]</span> G6P",
+e:"Hexokinase",
+en:"<span class='red'>ATP consumed</span>",
+ir:true,
+int:"Press P for Pentose Phosphate Pathway"},
 
-function connect(from,to){
-    let f=document.getElementById(from);
-    let t=document.getElementById(to);
-    if(!f||!t) return;
+{r:"<span class='carbon'>[6C]</span> G6P ↔ <span class='carbon'>[6C]</span> F6P",
+e:"Isomerase",
+en:"",
+ir:false},
 
-    let fx=f.offsetLeft+f.offsetWidth/2;
-    let fy=f.offsetTop+f.offsetHeight;
-    let tx=t.offsetLeft+t.offsetWidth/2;
-    let ty=t.offsetTop;
+{r:"<span class='carbon'>[6C]</span> F6P → <span class='carbon'>[6C]</span> F1,6BP",
+e:"PFK-1",
+en:"<span class='red'>ATP consumed</span>",
+ir:true},
 
-    let arrow=document.createElement("div");
-    arrow.className="arrow";
-    arrow.style.left=fx+"px";
-    arrow.style.top=fy+"px";
-    arrow.style.height=(ty-fy)+"px";
-    map.appendChild(arrow);
-}
+{r:"<span class='carbon'>[6C]</span> F1,6BP ↔ <span class='carbon'>[3C]</span> + <span class='carbon'>[3C]</span>",
+e:"Aldolase",
+en:"",
+ir:false},
 
-/* ========================
-   BUILD CORE PATHWAY
-========================= */
-
-function buildAtlas(){
-
-map.innerHTML="";
-
-/* Glycolysis End Node */
-
-createNode(900,200,
-`<b>Pyruvate</b><br>
-<span class='carbon'>[3C]</span>
-<br>
-<button class="branch-btn" onclick="branchTCA()">TCA</button>
-<button class="branch-btn" onclick="branchLactate()">Lactate</button>
-<button class="branch-btn" onclick="branchAlanine()">Alanine</button>
-<button class="branch-btn" onclick="branchGNG()">Gluconeogenesis</button>
-<button class="branch-btn" onclick="branchFA()">Fatty Acid Synth</button>
-<button class="branch-btn" onclick="branchBeta()">β-oxidation</button>
-`,"pyruvate");
-
-}
-
-/* ========================
-   BRANCH FUNCTIONS
-========================= */
-
-function branchTCA(){
-
-createNode(900,350,
-`<b>Acetyl-CoA</b><br>
-<span class='carbon'>[2C]</span>`,"acetyl");
-
-connect("pyruvate","acetyl");
-
-/* TCA CYCLE */
-
-let tcaSteps=[
-"Citrate [6C]",
-"Isocitrate [6C]",
-"α-KG [5C] + CO₂",
-"Succinyl-CoA [4C]",
-"Succinate",
-"Fumarate",
-"Malate",
-"OAA [4C]"
+{r:"<span class='carbon'>[3C]</span> PEP → <span class='carbon'>[3C]</span> Pyruvate",
+e:"Pyruvate kinase",
+en:"<span class='green'>ATP produced</span>",
+ir:true,
+int:"Press T (TCA), G (Gluconeogenesis), L (Lactate), A (Alanine), B (Beta-oxidation)"}
 ];
 
-let y=450;
-tcaSteps.forEach((s,i)=>{
-createNode(900,y,`<b>${s}</b>`,"tca"+i);
-if(i===0) connect("acetyl","tca0");
-else connect("tca"+(i-1),"tca"+i);
-y+=100;
+const tca=[
+"Acetyl-CoA + OAA → Citrate",
+"Citrate ↔ Isocitrate",
+"Isocitrate → α-KG + CO₂",
+"α-KG → Succinyl-CoA + CO₂",
+"Succinyl-CoA → Succinate",
+"Succinate → Fumarate",
+"Fumarate → Malate",
+"Malate → OAA"
+];
+
+/* ================== FUNCTIONS ================== */
+
+function createCard(content,enzyme="",energy="",irreversible=false,integrate=""){
+let div=document.createElement("div");
+div.className="card";
+if(irreversible) div.classList.add("irreversible");
+
+div.innerHTML=`
+${content}<br>
+Enzyme: ${enzyme}<br>
+${energy}
+`;
+
+if(integrate){
+let box=document.createElement("div");
+box.className="integration";
+box.innerHTML=integrate;
+div.appendChild(box);
+}
+
+setTimeout(()=>div.classList.add("show"),50);
+return div;
+}
+
+function next(){
+if(mode==="glycolysis" && index<glycolysis.length){
+let step=glycolysis[index];
+pathway.appendChild(createCard(step.r,step.e,step.en,step.ir,step.int));
+index++;
+}
+}
+
+function undo(){
+if(index>0){
+pathway.removeChild(pathway.lastChild);
+index--;
+}
+}
+
+function resetAll(){
+pathway.innerHTML="";
+index=0;
+mode="glycolysis";
+}
+
+/* ========== INTEGRATION KEYS ========== */
+
+function buildTCA(){
+mode="tca";
+tca.forEach(step=>{
+pathway.appendChild(createCard(step,"","",false,""));
+});
+}
+
+function buildPPP(){
+pathway.appendChild(createCard(
+"G6P → 6PG → Ribulose-5P + CO₂",
+"G6PD",
+"<span class='green'>NADPH produced</span>",
+true,""
+));
+}
+
+function buildBeta(){
+let carbons=16;
+while(carbons>2){
+pathway.appendChild(createCard(
+`Fatty Acyl-CoA <span class='carbon'>[${carbons}C]</span> → <span class='carbon'>[${carbons-2}C]</span>`,
+"",
+"<span class='green'>1 NADH + 1 FADH₂ + 1 Acetyl-CoA</span>",
+false,""
+));
+carbons-=2;
+}
+}
+
+/* ========== KEYBOARD ========== */
+
+document.addEventListener("keydown",function(e){
+
+if(e.key==="Enter") next();
+if(e.key==="ArrowLeft") undo();
+if(e.key==="Backspace"){e.preventDefault(); undo();}
+if(e.key==="r"||e.key==="R") resetAll();
+
+if(e.key==="T"||e.key==="t") buildTCA();
+if(e.key==="P"||e.key==="p") buildPPP();
+if(e.key==="B"||e.key==="b") buildBeta();
+
 });
 
-}
-
-function branchLactate(){
-createNode(650,350,
-`<b>Lactate</b><br><span class='carbon'>[3C]</span>
-<br>Anaerobic<br><span class='green'>NAD+ regenerated</span>`,"lactate");
-connect("pyruvate","lactate");
-}
-
-function branchAlanine(){
-createNode(1150,350,
-`<b>Alanine</b><br><span class='carbon'>[3C]</span>
-<br>Cahill Cycle`,"alanine");
-connect("pyruvate","alanine");
-}
-
-function branchGNG(){
-createNode(650,600,
-`<b>Gluconeogenesis</b><br>
-Pyruvate → OAA → PEP → Glucose
-<br><span class='red'>ATP used</span>`,"gng");
-connect("pyruvate","gng");
-}
-
-function branchFA(){
-createNode(1150,600,
-`<b>Fatty Acid Synthesis</b><br>
-Acetyl-CoA → FA
-<br><span class='green'>NADPH required</span>`,"fa");
-connect("pyruvate","fa");
-}
-
-/* ========================
-   FULL β-OXIDATION SPIRAL
-========================= */
-
-function branchBeta(){
-
-createNode(400,350,
-`<b>Fatty Acyl-CoA</b>
-<br><span class='carbon'>[16C]</span>`,"beta0");
-
-connect("pyruvate","beta0");
-
-/* Spiral Logic */
-
-let carbons=16;
-let y=450;
-let step=1;
-
-while(carbons>2){
-
-createNode(400,y,
-`<b>β-Oxidation Cycle ${step}</b>
-<br><span class='carbon'>[${carbons}C]</span> → <span class='carbon'>[${carbons-2}C]</span>
-<br><span class='green'>1 FADH₂ + 1 NADH + 1 Acetyl-CoA</span>`,"beta"+step);
-
-if(step===1) connect("beta0","beta1");
-else connect("beta"+(step-1),"beta"+step);
-
-carbons-=2;
-y+=120;
-step++;
-}
-
-}
-
-/* ========================
-   ZOOM CONTROLS
-========================= */
-
-function zoomIn(){
-scale+=0.1;
-document.getElementById("canvas").style.transform=`scale(${scale})`;
-}
-function zoomOut(){
-scale-=0.1;
-document.getElementById("canvas").style.transform=`scale(${scale})`;
-}
-function resetZoom(){
-scale=1;
-document.getElementById("canvas").style.transform="scale(1)";
-}
-
-/* INITIAL BUILD */
-
-buildAtlas();
-
 </script>
+
 </body>
 </html>
